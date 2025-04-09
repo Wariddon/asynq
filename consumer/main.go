@@ -21,9 +21,11 @@ var kafkaBrokers = []string{
 	// "connect-kafka-dev03.devcloud.scb:19092",
 }
 
-type JobPayload struct {
-	Message  string `json:"message"`
-	Priority string `json:"priority"`
+type LineNotificationPayload struct {
+	CorrelationID string `json:"correlation_id"`
+	Content       string `json:"content"`
+	Priority      string `json:"priority"`
+	RetryLimit    int    `json:"retry_limit"`
 }
 
 func main() {
@@ -46,24 +48,15 @@ func main() {
 
 		log.Printf("📩 Received from Kafka: %s\n", string(msg.Value))
 
-		var jobData JobPayload
+		var jobData LineNotificationPayload
 		if err := json.Unmarshal(msg.Value, &jobData); err != nil {
 			log.Printf("❌ Error parsing message: %v", err)
 			continue
 		}
 
-		// Assign queue based on priority
-		queue := "low"
-		switch jobData.Priority {
-		case "high":
-			queue = "high"
-		case "medium":
-			queue = "medium"
-		}
-
 		task := asynq.NewTask("ProcessJob", msg.Value)
 
-		_, err = client.Enqueue(task, asynq.Queue(queue), asynq.MaxRetry(3))
+		_, err = client.Enqueue(task, asynq.Queue(jobData.Priority), asynq.MaxRetry(3))
 		if err != nil {
 			log.Fatalf("❌ Failed to enqueue job: %v", err)
 		}

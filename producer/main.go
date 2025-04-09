@@ -11,6 +11,13 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+type LineNotificationPayload struct {
+	CorrelationID string `json:"correlation_id"`
+	Content       string `json:"content"`
+	Priority      string `json:"priority"`
+	RetryLimit    int    `json:"retry_limit"`
+}
+
 const (
 	kafkaTopic = "asynq_jobs"
 )
@@ -24,11 +31,6 @@ var kafkaBrokers = []string{
 	// "connect-kafka-dev03.devcloud.scb:19092",
 }
 
-type JobPayload struct {
-	Message  string `json:"message"`
-	Priority string `json:"priority"` // high, medium, low
-}
-
 func main() {
 
 	// Step 1: Ensure topic exists before producing messages
@@ -40,17 +42,31 @@ func main() {
 	client := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
 	defer client.Close()
 
-	priorities := []string{"high", "medium", "low"}
+	priorities := []string{"critical", "high", "medium", "low"}
 
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= 1; i++ {
+
 		priority := priorities[rand.Intn(len(priorities))]
 		message := fmt.Sprintf("Job #%d", i)
+		retryLimit := 4
 
-		jobData, _ := json.Marshal(JobPayload{Message: message, Priority: priority})
+		payload := LineNotificationPayload{
+			CorrelationID: fmt.Sprintf("ABCDE%d", i),
+			Content:       message,
+			Priority:      priority,
+			RetryLimit:    retryLimit,
+		}
+
+		jobData, _ := json.Marshal(payload)
 		task := asynq.NewTask("ProcessJob", jobData)
 
-		//_, err := client.Enqueue(task, asynq.Queue(priority), asynq.MaxRetry(1))
-		_, err := client.Enqueue(task, asynq.Queue(priority))
+		_, err := client.Enqueue(task,
+			asynq.Queue(priority),
+			asynq.MaxRetry(retryLimit),
+			asynq.Retention(24*time.Hour),  // Keep in DLQ(Dead Letter Queue) for 24 hours
+			asynq.ProcessIn(1*time.Second), // Delay processing for 10 seconds
+		)
+		//_, err := client.Enqueue(task, asynq.Queue(priority))
 		if err != nil {
 			log.Fatalf("❌ Failed to enqueue job: %v", err)
 		}
